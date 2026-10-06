@@ -1,0 +1,70 @@
+# API server. Built for AWS EKS but works on any Kubernetes cluster.
+# Assumes MongoDB (e.g. Atlas or DocumentDB) and Redis (e.g. ElastiCache) are provided outside the cluster.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: server-config
+  namespace: task-board
+data:
+  CORS_ORIGIN: "https://taskboard.example.com"
+  LOG_LEVEL: "info"
+---
+# Create the real secret with:
+# kubectl -n task-board create secret generic server-secrets \
+#   --from-literal=MONGO_URL=... --from-literal=REDIS_URL=... --from-literal=JWT_SECRET=...
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: server
+  namespace: task-board
+spec:
+  replicas: 2
+  selector:
+    matchLabels: { app: server }
+  template:
+    metadata:
+      labels: { app: server }
+    spec:
+      containers:
+        - name: server
+          image: ghcr.io/YOUR_GITHUB_USER/task-board-server:latest
+          ports: [{ containerPort: 4000 }]
+          envFrom:
+            - configMapRef: { name: server-config }
+            - secretRef: { name: server-secrets }
+          resources:
+            requests: { cpu: 100m, memory: 128Mi }
+            limits: { cpu: 500m, memory: 256Mi }
+          readinessProbe:
+            httpGet: { path: /health, port: 4000 }
+            periodSeconds: 5
+          livenessProbe:
+            httpGet: { path: /health, port: 4000 }
+            periodSeconds: 15
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: server
+  namespace: task-board
+spec:
+  selector: { app: server }
+  ports: [{ port: 80, targetPort: 4000 }]
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: server
+  namespace: task-board
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: server
+  minReplicas: 2
+  maxReplicas: 10
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target: { type: Utilization, averageUtilization: 70 }

@@ -1,0 +1,28 @@
+# Runs the full stack locally: MongoDB, Redis, two API servers and the React app.
+# Open http://localhost:8080 in two browsers to see live updates across servers.
+services:
+  mongo:
+    image: mongo:7
+    volumes: [mongo-data:/data/db]
+
+  redis:
+    image: redis:7-alpine
+
+  server-1: &server
+    build: ./server
+    environment:
+      MONGO_URL: mongodb://mongo:27017/taskboard
+      REDIS_URL: redis://redis:6379
+      JWT_SECRET: ${JWT_SECRET:-local-dev-secret}
+      CORS_ORIGIN: http://localhost:8080
+    depends_on: [mongo, redis]
+
+  server-2: *server
+
+  client:
+    build: ./client
+    ports: ["8080:80"]
+    depends_on: [server-1, server-2]
+
+volumes:
+  mongo-data:
